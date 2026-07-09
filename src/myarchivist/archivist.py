@@ -12,7 +12,7 @@ from mythings.isolation import Workspace, in_github_actions
 from mythings.ledger import Ledger
 from mythings.policy import Action, Decision, Policy
 
-from myarchivist.catalog import CatalogEntry, enrich_entries, merge_entries
+from myarchivist.catalog import CatalogEntry, carry_enrichment, enrich_entries, merge_entries
 from myarchivist.classify import classify_missing
 from myarchivist.enrich import Fetcher
 from myarchivist.enrich import _http as _default_fetch
@@ -77,10 +77,23 @@ class Archivist:
 
         enriched, subjects = enrich_entries(raw, fetch=self.fetch)
         merged = merge_entries(enriched, subjects_by_isbn=subjects)
+
+        existing_pr = None if no_pr else self._existing_pr()
+        # Diff against the tool's own catalog branch when one exists — the
+        # open PR branch, or the local branch on a --no-pr run — so a re-run
+        # before merge still detects "no change"; else against base.
+        if no_pr:
+            base_ref = _BRANCH if self._local_branch_exists() else self.base
+        else:
+            base_ref = _BRANCH if existing_pr is not None else self.base
+
+        merged = carry_enrichment(merged, self._read_catalog(base_ref))
         classified = classify_missing(self.engine, merged)
 
         try:
-            pr, wrote = self._write(classified, no_pr=no_pr)
+            pr, wrote = self._write(
+                classified, existing_pr=existing_pr, base_ref=base_ref, no_pr=no_pr
+            )
         except PolicyDenied as denied:
             self._record("failure", 0, str(denied), None)
             return Result("failure", 0, str(denied))
@@ -94,16 +107,13 @@ class Archivist:
         return Result("success", len(classified), detail, pr.number if pr else None, url)
 
     def _write(
-        self, entries: list[CatalogEntry], *, no_pr: bool
+        self,
+        entries: list[CatalogEntry],
+        *,
+        existing_pr: PullRequest | None,
+        base_ref: str,
+        no_pr: bool,
     ) -> tuple[PullRequest | None, bool]:
-        existing_pr = None if no_pr else self._existing_pr()
-        # Diff against the tool's own catalog branch when one exists — the
-        # open PR branch, or the local branch on a --no-pr run — so a re-run
-        # before merge still detects "no change"; else against base.
-        if no_pr:
-            base_ref = _BRANCH if self._local_branch_exists() else self.base
-        else:
-            base_ref = _BRANCH if existing_pr is not None else self.base
         with Workspace(self.source, base_ref) as tree:
             existing_path = tree / _CATALOG_JSON
             existing = (
@@ -138,6 +148,14 @@ class Archivist:
             head=_BRANCH,
         )
         return pr, True
+
+    def _read_catalog(self, ref: str) -> list[CatalogEntry]:
+        proc = subprocess.run(
+            ["git", "-C", str(self.source), "show", f"{ref}:{_CATALOG_JSON}"],
+            capture_output=True,
+            text=True,
+        )
+        return from_json(proc.stdout) if proc.returncode == 0 else []
 
     def _local_branch_exists(self) -> bool:
         proc = subprocess.run(

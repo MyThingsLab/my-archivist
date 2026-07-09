@@ -71,3 +71,23 @@ def test_merge_applies_subjects_by_isbn() -> None:
     raw = [RawEntry(title="Dune", author="Frank Herbert", isbn="123", fmt="physical")]
     merged = merge_entries(raw, subjects_by_isbn={"123": "fiction"})
     assert merged[0].subject == "fiction"
+
+
+def test_carry_enrichment_keeps_prior_subject_and_blurb() -> None:
+    from myarchivist.catalog import CatalogEntry, carry_enrichment
+
+    prior = [
+        CatalogEntry("Dune", "Frank Herbert", None, ("digital",), subject="fiction", blurb="Epic."),
+        CatalogEntry("Old Notes", "", None, ("digital",), subject="unsorted"),
+    ]
+    fresh = [
+        CatalogEntry("Dune", "Frank Herbert", None, ("digital",)),
+        CatalogEntry("Old Notes", "", None, ("digital",)),
+        CatalogEntry("New Book", "", None, ("digital",)),
+    ]
+    out = carry_enrichment(fresh, prior)
+    assert out[0].subject == "fiction"
+    assert out[0].blurb == "Epic."
+    # "unsorted" is the un-enriched marker: not carried, stays classifiable
+    assert out[1].subject is None
+    assert out[2].subject is None
