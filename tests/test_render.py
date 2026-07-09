@@ -34,3 +34,9 @@ def test_render_markdown_groups_by_subject_and_includes_blurb() -> None:
     assert "**Dune** — Frank Herbert" in text
     assert "A desert epic." in text
     assert "## Unsorted" in text  # subject=None entries render under "unsorted"
+
+
+def test_render_markdown_shows_filenames_not_full_paths() -> None:
+    text = render_markdown(_ENTRIES)
+    assert "`dune.epub`" in text
+    assert "/x/dune.epub" not in text

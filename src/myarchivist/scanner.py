@@ -31,6 +31,8 @@ _JUNK_TITLE_SUFFIX = re.compile(
 _JUNK_AUTHORS = frozenset({"author", "graphics", "unknown"})
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
+_INFO_REF = re.compile(rb"/Info\s+(\d+)\s+(\d+)\s+R\b")
+
 
 @dataclass(frozen=True)
 class RawEntry:
@@ -70,10 +72,36 @@ def _filename_fallback(path: Path) -> tuple[str, str]:
     return stem, ""
 
 
+def _info_dict_body(data: bytes) -> bytes | None:
+    # The document's own /Title lives in the Info dict named by the trailer's
+    # /Info ref, not in whichever embedded object happens to appear first.
+    # Take the last /Info ref (the live trailer after incremental updates) and
+    # the last matching object body; None (e.g. Info inside an object stream)
+    # falls back to the whole-file sweep.
+    refs = _INFO_REF.findall(data)
+    if not refs:
+        return None
+    num, gen = refs[-1]
+    obj = re.compile(rb"(?<!\d)" + num + rb"\s+" + gen + rb"\s+obj\b(.*?)endobj", re.DOTALL)
+    bodies = obj.findall(data)
+    return bodies[-1] if bodies else None
+
+
 def read_pdf_metadata(path: Path) -> tuple[str, str]:
     data = path.read_bytes()
-    title_match = _PDF_TITLE.search(data)
-    author_match = _PDF_AUTHOR.search(data)
+    info = _info_dict_body(data)
+    if info is not None and (_PDF_TITLE.search(info) or _PDF_AUTHOR.search(info)):
+        scope = info
+    elif _INFO_REF.search(data):
+        # A trailer /Info exists but its strings aren't readable (compressed
+        # object stream, or a dict without literal /Title//Author): any /Title
+        # elsewhere in the bytes is some embedded object's, not the
+        # document's — go straight to the filename fallback.
+        scope = b""
+    else:
+        scope = data
+    title_match = _PDF_TITLE.search(scope)
+    author_match = _PDF_AUTHOR.search(scope)
     title = _decode_pdf_string(title_match.group(1)) if title_match else ""
     author = _decode_pdf_string(author_match.group(1)) if author_match else ""
     if author.lower() in _JUNK_AUTHORS:

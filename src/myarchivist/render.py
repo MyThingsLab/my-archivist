@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import PurePath
 
 from myarchivist.catalog import CatalogEntry
 
@@ -53,7 +54,11 @@ def render_markdown(entries: list[CatalogEntry]) -> str:
             author = f" — {e.author}" if e.author else ""
             formats = f" [{', '.join(e.formats)}]"
             shelf = f" (shelf: {e.shelf})" if e.shelf else ""
-            out.append(f"- **{e.title}**{author}{formats}{shelf}")
+            # Filenames, not full paths: the catalog is checked in and should
+            # not encode one machine's directory layout.
+            names = ", ".join(f"`{PurePath(p).name}`" for p in e.paths)
+            files = f" — {names}" if names else ""
+            out.append(f"- **{e.title}**{author}{formats}{shelf}{files}")
             if e.blurb:
                 out.append(f"  {e.blurb}")
         out.append("")

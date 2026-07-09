@@ -97,9 +97,13 @@ class Archivist:
         self, entries: list[CatalogEntry], *, no_pr: bool
     ) -> tuple[PullRequest | None, bool]:
         existing_pr = None if no_pr else self._existing_pr()
-        # Diff against the tool's own open PR branch if one exists (so a
-        # re-run before merge still detects "no change"), else against base.
-        base_ref = _BRANCH if existing_pr is not None else self.base
+        # Diff against the tool's own catalog branch when one exists — the
+        # open PR branch, or the local branch on a --no-pr run — so a re-run
+        # before merge still detects "no change"; else against base.
+        if no_pr:
+            base_ref = _BRANCH if self._local_branch_exists() else self.base
+        else:
+            base_ref = _BRANCH if existing_pr is not None else self.base
         with Workspace(self.source, base_ref) as tree:
             existing_path = tree / _CATALOG_JSON
             existing = (
@@ -134,6 +138,14 @@ class Archivist:
             head=_BRANCH,
         )
         return pr, True
+
+    def _local_branch_exists(self) -> bool:
+        proc = subprocess.run(
+            ["git", "-C", str(self.source), "rev-parse", "--verify", "--quiet", _BRANCH],
+            capture_output=True,
+            text=True,
+        )
+        return proc.returncode == 0
 
     def _existing_pr(self) -> PullRequest | None:
         if self.repo is None:

@@ -82,6 +82,9 @@ def test_scan_no_pr_writes_locally_without_pushing(tmp_path: Path) -> None:
     assert "Dune" in local.stdout
     assert read_committed(repo, "my-archivist/catalog", "catalog/CATALOG.md") == ""
 
+    second = archivist.scan(digital=[str(books)], no_pr=True)
+    assert second.outcome == "skipped"
+
 
 def test_scan_idempotent_second_run_skips(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)

@@ -52,6 +52,27 @@ def test_scan_digital_pdf_strips_nul_padding_and_bomless_utf16(tmp_path: Path) -
     assert titles == {"Padded Title", "Bomless Title"}
 
 
+def test_scan_digital_pdf_prefers_trailer_info_dict(tmp_path: Path) -> None:
+    (tmp_path / "d.pdf").write_bytes(
+        b"%PDF-1.4\n"
+        b"3 0 obj\n<< /Title (Embedded Figure) >>\nendobj\n"
+        b"7 0 obj\n<< /Title (The Real Book) /Author (Real Author) >>\nendobj\n"
+        b"trailer\n<< /Info 7 0 R >>\n"
+    )
+    entries = scan_digital([tmp_path])
+    assert entries[0].title == "The Real Book"
+    assert entries[0].author == "Real Author"
+
+
+def test_scan_digital_pdf_unresolvable_info_uses_filename(tmp_path: Path) -> None:
+    # /Info names an object we can't read (e.g. compressed object stream);
+    # the embedded /Title is known not to be the document's — use the filename.
+    (tmp_path / "Actual_Book_Name.pdf").write_bytes(
+        b"%PDF-1.4\n3 0 obj\n<< /Title (Embedded Figure) >>\nendobj\ntrailer\n<< /Info 42 0 R >>\n"
+    )
+    assert scan_digital([tmp_path])[0].title == "Actual Book Name"
+
+
 def test_scan_digital_pdf_junk_author_dropped(tmp_path: Path) -> None:
     make_pdf_with_metadata(tmp_path / "c.pdf", title="Real Title", author="graphics")
     assert scan_digital([tmp_path])[0].author == ""
