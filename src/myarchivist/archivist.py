@@ -114,12 +114,13 @@ class Archivist:
             existing_path.write_text(to_json(entries), encoding="utf-8")
             (tree / _CATALOG_MD).write_text(render_markdown(entries), encoding="utf-8")
 
-            if no_pr:
-                return None, True
-
             self._git(tree, ["checkout", "-B", _BRANCH])
             self._git(tree, ["add", _CATALOG_JSON, _CATALOG_MD])
             self._git(tree, ["commit", "-m", "catalog: refresh from scan"])
+            if no_pr:
+                # The commit stays on the local branch after the worktree is
+                # torn down — --no-pr must not silently discard the catalog.
+                return None, True
             # The tool's own dedicated branch; force-push is the intended
             # refresh, never touches a shared branch (same as MyTodo).
             self._git(tree, ["push", "--force", "-u", "origin", _BRANCH])

@@ -36,6 +36,35 @@ def test_scan_digital_pdf_falls_back_to_filename(tmp_path: Path) -> None:
     assert entries[0].author == "Jane Doe"
 
 
+def test_scan_digital_pdf_decodes_utf16_title(tmp_path: Path) -> None:
+    title_bytes = b"\xfe\xff" + "Statistical Learning".encode("utf-16-be")
+    (tmp_path / "esl.pdf").write_bytes(b"%PDF-1.4\n/Title (" + title_bytes + b")\n")
+    entries = scan_digital([tmp_path])
+    assert entries[0].title == "Statistical Learning"
+
+
+def test_scan_digital_pdf_strips_nul_padding_and_bomless_utf16(tmp_path: Path) -> None:
+    padded = b"\xfe\xff" + "Padded Title".encode("utf-16-be") + b"\x00" * 12
+    (tmp_path / "a.pdf").write_bytes(b"%PDF-1.4\n/Title (" + padded + b")\n")
+    bomless = "Bomless Title".encode("utf-16-be")
+    (tmp_path / "b.pdf").write_bytes(b"%PDF-1.4\n/Title (" + bomless + b")\n")
+    titles = {e.title for e in scan_digital([tmp_path])}
+    assert titles == {"Padded Title", "Bomless Title"}
+
+
+def test_scan_digital_pdf_junk_author_dropped(tmp_path: Path) -> None:
+    make_pdf_with_metadata(tmp_path / "c.pdf", title="Real Title", author="graphics")
+    assert scan_digital([tmp_path])[0].author == ""
+
+
+def test_scan_digital_pdf_junk_title_falls_back_to_filename(tmp_path: Path) -> None:
+    esl = tmp_path / "Elements_of_Statistical_Learning.pdf"
+    make_pdf_with_metadata(esl, title="Cover", author="")
+    make_pdf_with_metadata(tmp_path / "nielsen_chuang.pdf", title="8348_013_fig_001.eps", author="")
+    titles = {e.title for e in scan_digital([tmp_path])}
+    assert titles == {"Elements of Statistical Learning", "nielsen chuang"}
+
+
 def test_scan_digital_ignores_other_extensions(tmp_path: Path) -> None:
     (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
     assert scan_digital([tmp_path]) == []
