@@ -30,6 +30,27 @@ def _dedupe_key(entry: RawEntry) -> str:
     return f"ta:{_normalize(entry.title)}|{_normalize(entry.author)}"
 
 
+def _entry_key(entry: CatalogEntry) -> str:
+    if entry.isbn:
+        return f"isbn:{entry.isbn}"
+    return f"ta:{_normalize(entry.title)}|{_normalize(entry.author)}"
+
+
+def carry_enrichment(entries: list[CatalogEntry], prior: list[CatalogEntry]) -> list[CatalogEntry]:
+    """Keep enrichment already paid for: subjects/blurbs from the existing
+    catalog stick to entries whose identity is unchanged, so a re-run against
+    a weaker engine never degrades them. "unsorted" is the un-enriched marker,
+    never carried — the entry stays eligible for classification."""
+    by_key = {_entry_key(p): p for p in prior if p.subject is not None and p.subject != "unsorted"}
+    out: list[CatalogEntry] = []
+    for entry in entries:
+        match = by_key.get(_entry_key(entry))
+        if match is not None and entry.subject is None:
+            entry = replace(entry, subject=match.subject, blurb=entry.blurb or match.blurb)
+        out.append(entry)
+    return out
+
+
 def enrich_entries(
     entries: list[RawEntry], *, fetch: Fetcher = _default_fetch
 ) -> tuple[list[RawEntry], dict[str, str | None]]:

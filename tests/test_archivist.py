@@ -132,3 +132,37 @@ def test_scan_comments_on_issue_when_given(tmp_path: Path) -> None:
     result = archivist.scan(digital=[str(books)], issue=5)
     assert result.comment_url is not None
     assert any(c[:2] == ["issue", "comment"] for c in runner.calls)
+
+
+def test_rescan_with_weaker_engine_keeps_enrichment(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="123")
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    runner = FakeRunner()
+    reply = '{"tags": [{"id": 0, "tag": "fiction", "blurb": "A desert epic."}]}'
+    first_engine = ScriptedEngine(reply)
+    archivist = Archivist(
+        source=repo,
+        ledger=ledger,
+        repo="owner/name",
+        runner=runner,
+        engine=first_engine,
+        policy=_AllowPolicy(),
+        fetch=empty_fetch,
+    )
+    assert archivist.scan(digital=[str(books)]).outcome == "success"
+    assert len(first_engine.calls) == 1
+
+    from conftest import SpyEngine
+
+    noop_like = SpyEngine()
+    archivist.engine = noop_like
+    second = archivist.scan(digital=[str(books)])
+    assert second.outcome == "skipped"
+    assert noop_like.calls == []  # enrichment carried over, nothing pending
+
+    committed = read_committed(repo, "my-archivist/catalog", "catalog/CATALOG.md")
+    assert "A desert epic." in committed
