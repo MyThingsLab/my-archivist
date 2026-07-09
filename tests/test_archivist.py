@@ -71,6 +71,20 @@ def test_scan_no_pr_writes_locally_without_pushing(tmp_path: Path) -> None:
     assert result.outcome == "success"
     assert result.pr is None
 
+    import subprocess
+
+    local = subprocess.run(
+        ["git", "-C", str(repo), "show", "my-archivist/catalog:catalog/CATALOG.md"],
+        capture_output=True,
+        text=True,
+    )
+    assert local.returncode == 0
+    assert "Dune" in local.stdout
+    assert read_committed(repo, "my-archivist/catalog", "catalog/CATALOG.md") == ""
+
+    second = archivist.scan(digital=[str(books)], no_pr=True)
+    assert second.outcome == "skipped"
+
 
 def test_scan_idempotent_second_run_skips(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)

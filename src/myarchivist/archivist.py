@@ -97,9 +97,13 @@ class Archivist:
         self, entries: list[CatalogEntry], *, no_pr: bool
     ) -> tuple[PullRequest | None, bool]:
         existing_pr = None if no_pr else self._existing_pr()
-        # Diff against the tool's own open PR branch if one exists (so a
-        # re-run before merge still detects "no change"), else against base.
-        base_ref = _BRANCH if existing_pr is not None else self.base
+        # Diff against the tool's own catalog branch when one exists — the
+        # open PR branch, or the local branch on a --no-pr run — so a re-run
+        # before merge still detects "no change"; else against base.
+        if no_pr:
+            base_ref = _BRANCH if self._local_branch_exists() else self.base
+        else:
+            base_ref = _BRANCH if existing_pr is not None else self.base
         with Workspace(self.source, base_ref) as tree:
             existing_path = tree / _CATALOG_JSON
             existing = (
@@ -114,12 +118,13 @@ class Archivist:
             existing_path.write_text(to_json(entries), encoding="utf-8")
             (tree / _CATALOG_MD).write_text(render_markdown(entries), encoding="utf-8")
 
-            if no_pr:
-                return None, True
-
             self._git(tree, ["checkout", "-B", _BRANCH])
             self._git(tree, ["add", _CATALOG_JSON, _CATALOG_MD])
             self._git(tree, ["commit", "-m", "catalog: refresh from scan"])
+            if no_pr:
+                # The commit stays on the local branch after the worktree is
+                # torn down — --no-pr must not silently discard the catalog.
+                return None, True
             # The tool's own dedicated branch; force-push is the intended
             # refresh, never touches a shared branch (same as MyTodo).
             self._git(tree, ["push", "--force", "-u", "origin", _BRANCH])
@@ -133,6 +138,14 @@ class Archivist:
             head=_BRANCH,
         )
         return pr, True
+
+    def _local_branch_exists(self) -> bool:
+        proc = subprocess.run(
+            ["git", "-C", str(self.source), "rev-parse", "--verify", "--quiet", _BRANCH],
+            capture_output=True,
+            text=True,
+        )
+        return proc.returncode == 0
 
     def _existing_pr(self) -> PullRequest | None:
         if self.repo is None:
