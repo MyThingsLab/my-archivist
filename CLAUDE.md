@@ -27,6 +27,11 @@ covered here defers to `HARNESS.md`, then `my-things-core/docs/CONVENTIONS.md`.
   tool never invents an inventory. Writes `catalog/CATALOG.md` +
   `catalog/catalog.json` inside a `Workspace` and opens exactly one PR per
   run (idempotent: a re-run with no new inputs is `outcome=skipped`, no
-  empty PR), routed through `Policy` (`Guard` default). **Never merges.**
-  Ledger `kind`: `catalog`.
+  empty PR), routed through `Policy` (`Guard` default). Also files one
+  `my-bibliography`-labeled issue per newly-cataloged ISBN (body is the bare
+  `isbn:<isbn>` locator, deduped against currently-open bibliography issues
+  by title, opt-out `--no-bibliography`) — never a package import of or
+  direct call to `mybibliography`, just a labeled issue for that independent
+  tool to pick up. **Never merges.** Ledger `kind`: `catalog`
+  (`data.bibliography_issues` lists what was filed).
 - **Backlog label:** `my-archivist`

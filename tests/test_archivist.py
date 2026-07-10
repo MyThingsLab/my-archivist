@@ -134,6 +134,120 @@ def test_scan_comments_on_issue_when_given(tmp_path: Path) -> None:
     assert any(c[:2] == ["issue", "comment"] for c in runner.calls)
 
 
+def test_scan_files_bibliography_issue_for_new_isbn(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    runner = FakeRunner()
+    archivist = Archivist(
+        source=repo,
+        ledger=ledger,
+        repo="owner/name",
+        runner=runner,
+        engine=ScriptedEngine("{}"),
+        policy=_AllowPolicy(),
+        fetch=empty_fetch,
+    )
+    result = archivist.scan(digital=[str(books)])
+    assert result.outcome == "success"
+
+    creates = [c for c in runner.calls if c[:2] == ["issue", "create"]]
+    assert len(creates) == 1
+    assert "bibliography: catalog isbn:9780441172719" in creates[0]
+    edits = [c for c in runner.calls if c[:2] == ["issue", "edit"]]
+    assert edits and "my-bibliography" in edits[0]
+
+    entries = ledger.read(tool="myarchivist", kind="catalog")
+    assert entries[0].data["bibliography_issues"] == [{"isbn": "9780441172719", "issue": 101}]
+
+
+def test_scan_does_not_refile_isbn_already_cataloged(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    runner = FakeRunner()
+    archivist = Archivist(
+        source=repo,
+        ledger=ledger,
+        repo="owner/name",
+        runner=runner,
+        engine=ScriptedEngine("{}"),
+        policy=_AllowPolicy(),
+        fetch=empty_fetch,
+    )
+    assert archivist.scan(digital=[str(books)]).outcome == "success"
+
+    make_epub(
+        books / "herbert2.epub", title="Dune Messiah", author="Frank Herbert",
+        isbn="9780425093372",
+    )
+    result = archivist.scan(digital=[str(books)])
+    assert result.outcome == "success"
+
+    # Only the newly-added ISBN gets a bibliography issue on the second run.
+    creates = [c for c in runner.calls if c[:2] == ["issue", "create"]]
+    assert len(creates) == 2
+    assert "bibliography: catalog isbn:9780441172719" in creates[0]
+    assert "bibliography: catalog isbn:9780425093372" in creates[1]
+
+
+def test_scan_no_bibliography_flag_skips_filing(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    runner = FakeRunner()
+    archivist = Archivist(
+        source=repo,
+        ledger=ledger,
+        repo="owner/name",
+        runner=runner,
+        engine=ScriptedEngine("{}"),
+        policy=_AllowPolicy(),
+        fetch=empty_fetch,
+    )
+    result = archivist.scan(digital=[str(books)], no_bibliography=True)
+    assert result.outcome == "success"
+    assert not any(c[:2] == ["issue", "create"] for c in runner.calls)
+
+    entries = ledger.read(tool="myarchivist", kind="catalog")
+    assert entries[0].data["bibliography_issues"] == []
+
+
+def test_scan_does_not_refile_open_bibliography_issue(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    runner = FakeRunner(
+        open_bibliography_issues=[
+            {"number": 42, "title": "bibliography: catalog isbn:9780441172719"}
+        ]
+    )
+    archivist = Archivist(
+        source=repo,
+        ledger=ledger,
+        repo="owner/name",
+        runner=runner,
+        engine=ScriptedEngine("{}"),
+        policy=_AllowPolicy(),
+        fetch=empty_fetch,
+    )
+    result = archivist.scan(digital=[str(books)])
+    assert result.outcome == "success"
+    assert not any(c[:2] == ["issue", "create"] for c in runner.calls)
+
+
 def test_rescan_with_weaker_engine_keeps_enrichment(tmp_path: Path) -> None:
     repo = make_repo(tmp_path)
     books = tmp_path / "books"

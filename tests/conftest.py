@@ -122,10 +122,17 @@ class SpyEngine:
 
 
 class FakeRunner:
-    def __init__(self, comment_url: str = "https://github.com/owner/name/issues/1#comment") -> None:
+    def __init__(
+        self,
+        comment_url: str = "https://github.com/owner/name/issues/1#comment",
+        *,
+        open_bibliography_issues: list[dict] | None = None,
+    ) -> None:
         self.calls: list[list[str]] = []
         self._comment_url = comment_url
         self._opened_pr: dict | None = None
+        self.open_bibliography_issues = open_bibliography_issues or []
+        self._next_issue_number = 100
 
     def __call__(self, argv: list[str]) -> str:
         self.calls.append(argv)
@@ -136,4 +143,22 @@ class FakeRunner:
         if argv[:2] == ["pr", "create"]:
             self._opened_pr = {"number": 9, "url": "https://github.com/owner/name/pull/9"}
             return self._opened_pr["url"] + "\n"
+        if argv[:2] == ["issue", "list"]:
+            return json.dumps(
+                [
+                    {
+                        "number": i["number"],
+                        "title": i["title"],
+                        "body": i.get("body", ""),
+                        "labels": [{"name": "my-bibliography"}],
+                        "url": f"https://github.com/owner/name/issues/{i['number']}",
+                    }
+                    for i in self.open_bibliography_issues
+                ]
+            )
+        if argv[:2] == ["issue", "create"]:
+            self._next_issue_number += 1
+            return f"https://github.com/owner/name/issues/{self._next_issue_number}\n"
+        if argv[:2] == ["issue", "edit"]:
+            return ""
         raise AssertionError(f"unexpected gh call: {argv}")

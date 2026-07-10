@@ -38,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--issue", type=int, help="also comment the refreshed catalog on this issue")
     scan.add_argument("--no-pr", action="store_true")
     scan.add_argument("--no-comment", action="store_true")
+    scan.add_argument(
+        "--no-bibliography",
+        action="store_true",
+        help="skip filing my-bibliography issues for newly-cataloged ISBNs",
+    )
     scan.add_argument("--json", action="store_true")
     scan.add_argument("--ledger", type=Path, default=Path(".mythings/ledger.jsonl"))
     scan.add_argument("--engine", choices=sorted(_ENGINE_NAMES), default="noop")
@@ -59,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         issue=args.issue,
         no_pr=args.no_pr,
         no_comment=args.no_comment,
+        no_bibliography=args.no_bibliography,
     )
 
     if args.json:
