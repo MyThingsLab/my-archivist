@@ -38,6 +38,11 @@ default). Idempotent: a re-run with no new inputs is `outcome=skipped`, no
 empty PR. Writes exactly one `kind=catalog` ledger entry per run. Never
 merges.
 
+Every newly-cataloged ISBN also gets one `my-bibliography`-labeled issue
+filed (`--no-bibliography` to skip) so **MyBibliography** can independently
+resolve it into a `references.bib`/`references.json` entry — a labeled issue
+handoff, not a package dependency.
+
 ## Usage
 
 ```bash
