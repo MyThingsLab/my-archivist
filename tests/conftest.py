@@ -1,48 +1,44 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import zipfile
 from pathlib import Path
 
 import pytest
-from mythings.engine import EngineRequest, EngineResult
+
+# Shared fakes come from mythings.testing (plain imports, no pytest_plugins:
+# a top-level import alongside plugin registration would skip assertion
+# rewriting). `clean_git_env` is imported so pytest registers the fixture.
+from mythings.testing import (
+    FakeGh,
+    GitRepo,
+    ScriptedEngine,
+    fake_fetch,
+    make_git_repo,
+)
+
+# Fixture re-export: pytest registers it under the attribute name, and the
+# alias avoids shadowing errors in the autouse wrapper below.
+from mythings.testing import clean_git_env as _shared_clean_git_env  # noqa: F401
 
 from myarchivist.enrich import OPENLIBRARY_ENDPOINT
 
+__all__ = ["ScriptedEngine"]
+
 
 @pytest.fixture(autouse=True)
-def _clean_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY"):
-        monkeypatch.delenv(var, raising=False)
-
-
-def git(repo: Path, *argv: str) -> None:
-    subprocess.run(["git", "-C", str(repo), *argv], check=True, capture_output=True, text=True)
+def _clean_git_env(request: pytest.FixtureRequest) -> None:
+    # Every test builds real git repos; hook-launched pytest (pre-commit)
+    # must not leak GIT_* into them.
+    request.getfixturevalue("_shared_clean_git_env")
 
 
 def make_repo(tmp_path: Path) -> Path:
-    origin = tmp_path / "origin.git"
-    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)
-    repo = tmp_path / "work"
-    repo.mkdir()
-    (repo / "README.md").write_text("# library\n", encoding="utf-8")
-    git(repo, "init", "-b", "main")
-    git(repo, "config", "user.email", "t@example.com")
-    git(repo, "config", "user.name", "Archivist")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-m", "init")
-    git(repo, "remote", "add", "origin", str(origin))
-    git(repo, "push", "-u", "origin", "main")
-    return repo
+    return make_git_repo(tmp_path, files={"README.md": "# library\n"}).path
 
 
 def read_committed(repo: Path, branch: str, path: str) -> str:
-    origin = repo.parent / "origin.git"
-    proc = subprocess.run(
-        ["git", "-C", str(origin), "show", f"{branch}:{path}"], capture_output=True, text=True
-    )
-    return proc.stdout
+    return GitRepo(path=repo, origin=repo.parent / "origin.git").read_committed(branch, path)
 
 
 def make_epub(path: Path, *, title: str, author: str, isbn: str | None = None) -> None:
@@ -87,78 +83,59 @@ def openlibrary_payload(isbn: str, *, title: str, author: str, subjects: list[st
 
 
 def fake_fetch_factory(payloads: dict[str, dict]):
-    def _fetch(url: str, *, data: bytes | None = None, headers: dict | None = None) -> bytes:
-        if url.startswith(OPENLIBRARY_ENDPOINT):
-            for isbn, payload in payloads.items():
-                if f"ISBN:{isbn}" in url or isbn in url:
-                    return json.dumps(payload).encode()
-            return json.dumps({}).encode()
-        raise AssertionError(f"unexpected fetch url: {url}")
-
-    return _fetch
+    # ISBN keys first so they win the substring match; any other Open Library
+    # url falls through to the empty payload; non-openlibrary urls raise.
+    responses: dict[str, object] = dict(payloads)
+    responses[OPENLIBRARY_ENDPOINT] = {}
+    return fake_fetch(responses)
 
 
-def empty_fetch(url: str, *, data: bytes | None = None, headers: dict | None = None) -> bytes:
-    return json.dumps({}).encode()
+empty_fetch = fake_fetch(default=b"{}")
 
 
-class ScriptedEngine:
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
-        self.calls: list[EngineRequest] = []
+def fake_gh(
+    comment_url: str = "https://github.com/owner/name/issues/1#comment",
+    *,
+    open_bibliography_issues: list[dict] | None = None,
+) -> FakeGh:
+    # Stateful gh double: `pr list` reflects the PR a prior `pr create` opened,
+    # `issue create` hands out increasing numbers — closures over `state`
+    # replace the old FakeRunner subclass.
+    state: dict[str, object] = {"opened_pr": None, "next_issue": 100}
+    issues = open_bibliography_issues or []
 
-    def run(self, request: EngineRequest) -> EngineResult:
-        self.calls.append(request)
-        return EngineResult(text=self.reply)
+    def pr_create(argv: list[str]) -> str:
+        state["opened_pr"] = {"number": 9, "url": "https://github.com/owner/name/pull/9"}
+        return "https://github.com/owner/name/pull/9\n"
 
+    def pr_list(argv: list[str]) -> str:
+        return json.dumps([state["opened_pr"]] if state["opened_pr"] else [])
 
-class SpyEngine:
-    def __init__(self) -> None:
-        self.calls: list[EngineRequest] = []
+    def issue_list(argv: list[str]) -> str:
+        return json.dumps(
+            [
+                {
+                    "number": i["number"],
+                    "title": i["title"],
+                    "body": i.get("body", ""),
+                    "labels": [{"name": "my-bibliography"}],
+                    "url": f"https://github.com/owner/name/issues/{i['number']}",
+                }
+                for i in issues
+            ]
+        )
 
-    def run(self, request: EngineRequest) -> EngineResult:
-        self.calls.append(request)
-        return EngineResult(text="")
+    def issue_create(argv: list[str]) -> str:
+        state["next_issue"] = int(state["next_issue"]) + 1
+        return f"https://github.com/owner/name/issues/{state['next_issue']}\n"
 
-
-class FakeRunner:
-    def __init__(
-        self,
-        comment_url: str = "https://github.com/owner/name/issues/1#comment",
-        *,
-        open_bibliography_issues: list[dict] | None = None,
-    ) -> None:
-        self.calls: list[list[str]] = []
-        self._comment_url = comment_url
-        self._opened_pr: dict | None = None
-        self.open_bibliography_issues = open_bibliography_issues or []
-        self._next_issue_number = 100
-
-    def __call__(self, argv: list[str]) -> str:
-        self.calls.append(argv)
-        if argv[:2] == ["issue", "comment"]:
-            return self._comment_url + "\n"
-        if argv[:2] == ["pr", "list"]:
-            return json.dumps([self._opened_pr] if self._opened_pr else [])
-        if argv[:2] == ["pr", "create"]:
-            self._opened_pr = {"number": 9, "url": "https://github.com/owner/name/pull/9"}
-            return self._opened_pr["url"] + "\n"
-        if argv[:2] == ["issue", "list"]:
-            return json.dumps(
-                [
-                    {
-                        "number": i["number"],
-                        "title": i["title"],
-                        "body": i.get("body", ""),
-                        "labels": [{"name": "my-bibliography"}],
-                        "url": f"https://github.com/owner/name/issues/{i['number']}",
-                    }
-                    for i in self.open_bibliography_issues
-                ]
-            )
-        if argv[:2] == ["issue", "create"]:
-            self._next_issue_number += 1
-            return f"https://github.com/owner/name/issues/{self._next_issue_number}\n"
-        if argv[:2] == ["issue", "edit"]:
-            return ""
-        raise AssertionError(f"unexpected gh call: {argv}")
+    return FakeGh(
+        {
+            ("issue", "comment"): comment_url + "\n",
+            ("pr", "list"): pr_list,
+            ("pr", "create"): pr_create,
+            ("issue", "list"): issue_list,
+            ("issue", "create"): issue_create,
+            ("issue", "edit"): "",
+        }
+    )

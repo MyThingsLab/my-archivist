@@ -5,7 +5,7 @@ from pathlib import Path
 from mythings.ledger import Ledger
 from mythings.policy import ALLOW, Action, PolicyResult
 
-from conftest import FakeRunner, ScriptedEngine, empty_fetch, make_epub, make_repo, read_committed
+from conftest import ScriptedEngine, empty_fetch, fake_gh, make_epub, make_repo, read_committed
 from myarchivist.archivist import Archivist
 
 
@@ -31,7 +31,7 @@ def test_scan_writes_catalog_and_opens_pr(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="123")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -93,7 +93,7 @@ def test_scan_idempotent_second_run_skips(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="123")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -119,7 +119,7 @@ def test_scan_comments_on_issue_when_given(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="123")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -141,7 +141,7 @@ def test_scan_files_bibliography_issue_for_new_isbn(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -171,7 +171,7 @@ def test_scan_does_not_refile_isbn_already_cataloged(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -204,7 +204,7 @@ def test_scan_no_bibliography_flag_skips_filing(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     archivist = Archivist(
         source=repo,
         ledger=ledger,
@@ -229,7 +229,7 @@ def test_scan_does_not_refile_open_bibliography_issue(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="9780441172719")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner(
+    runner = fake_gh(
         open_bibliography_issues=[
             {"number": 42, "title": "bibliography: catalog isbn:9780441172719"}
         ]
@@ -255,7 +255,7 @@ def test_rescan_with_weaker_engine_keeps_enrichment(tmp_path: Path) -> None:
     make_epub(books / "dune.epub", title="Dune", author="Frank Herbert", isbn="123")
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     reply = '{"tags": [{"id": 0, "tag": "fiction", "blurb": "A desert epic."}]}'
     first_engine = ScriptedEngine(reply)
     archivist = Archivist(
@@ -270,9 +270,7 @@ def test_rescan_with_weaker_engine_keeps_enrichment(tmp_path: Path) -> None:
     assert archivist.scan(digital=[str(books)]).outcome == "success"
     assert len(first_engine.calls) == 1
 
-    from conftest import SpyEngine
-
-    noop_like = SpyEngine()
+    noop_like = ScriptedEngine()
     archivist.engine = noop_like
     second = archivist.scan(digital=[str(books)])
     assert second.outcome == "skipped"
