@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-import urllib.request
-from collections.abc import Callable
 
-# The one network boundary. Default shells out to urllib; tests inject a fake so
-# the HTTP call is the only thing mocked (same discipline as engine/github Runners).
-Fetcher = Callable[..., bytes]
+from mythings.http import Fetcher, http_get
 
 OPENLIBRARY_ENDPOINT = "https://openlibrary.org/api/books"
 
@@ -20,13 +16,7 @@ _SUBJECT_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _http(url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None) -> bytes:
-    req = urllib.request.Request(url, data=data, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - fixed https endpoint
-        return resp.read()
-
-
-def lookup_isbn(isbn: str, *, fetch: Fetcher = _http) -> dict | None:
+def lookup_isbn(isbn: str, *, fetch: Fetcher = http_get) -> dict | None:
     key = f"ISBN:{isbn}"
     params = urllib.parse.urlencode({"bibkeys": key, "format": "json", "jscmd": "data"})
     raw = fetch(f"{OPENLIBRARY_ENDPOINT}?{params}")
