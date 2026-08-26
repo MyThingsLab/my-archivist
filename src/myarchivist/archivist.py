@@ -8,6 +8,7 @@ from pathlib import Path
 from myguard import Guard
 from mythings.engine import Engine, NoopEngine
 from mythings.github import GitHub, GitHubError, PullRequest, Runner, _gh, _pr_number
+from mythings.http import Fetcher, http_get
 from mythings.isolation import Workspace, in_github_actions
 from mythings.ledger import Ledger
 from mythings.policy import Action, Decision, Policy
@@ -20,8 +21,6 @@ from myarchivist.catalog import (
     merge_entries,
 )
 from myarchivist.classify import classify_missing
-from myarchivist.enrich import Fetcher
-from myarchivist.enrich import _http as _default_fetch
 from myarchivist.render import from_json, render_markdown, to_json
 from myarchivist.scanner import read_physical_intake, scan_digital
 
@@ -62,7 +61,7 @@ class Archivist:
         engine: Engine | None = None,
         policy: Policy | None = None,
         runner: Runner = _gh,
-        fetch: Fetcher = _default_fetch,
+        fetch: Fetcher = http_get,
     ) -> None:
         self.source = Path(source)
         self.ledger = ledger

@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 
-from myarchivist.enrich import Fetcher, classify_subject, lookup_isbn, subjects_from_lookup
-from myarchivist.enrich import _http as _default_fetch
+from mythings.http import Fetcher, http_get
+
+from myarchivist.enrich import classify_subject, lookup_isbn, subjects_from_lookup
 from myarchivist.scanner import RawEntry
 
 
@@ -52,7 +53,7 @@ def carry_enrichment(entries: list[CatalogEntry], prior: list[CatalogEntry]) -> 
 
 
 def enrich_entries(
-    entries: list[RawEntry], *, fetch: Fetcher = _default_fetch
+    entries: list[RawEntry], *, fetch: Fetcher = http_get
 ) -> tuple[list[RawEntry], dict[str, str | None]]:
     """Fill in title/author from Open Library where an ISBN is present.
 
