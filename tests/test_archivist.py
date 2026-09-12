@@ -278,3 +278,7 @@ def test_rescan_with_weaker_engine_keeps_enrichment(tmp_path: Path) -> None:
 
     committed = read_committed(repo, "my-archivist/catalog", "catalog/CATALOG.md")
     assert "A desert epic." in committed
+
+
+def test_noop_placeholder() -> None:
+    assert True
